@@ -19,14 +19,19 @@ module FlexVerb
     rule(:verb => simple(:verb)) do
       verb.to_sym
     end
+
+    rule(:subject => simple(:subject)) do
+      subject.to_sym
+    end
   end
 
   module Interpreter
     class Interpreter
-      def initialize(code)
+      def initialize(code, extra_environment={})
         @terms = Parser.new.parse code
         @transform = Transform.new
-        @environment = {:global_subject => GlobalSubject.new}
+        starting_environment = {:global_subject => GlobalSubject.new}
+        @environment = extra_environment.merge(starting_environment)
       end
 
       def interpret
@@ -51,8 +56,21 @@ module FlexVerb
     end
 
     class GlobalSubject
+      def initialize(environment)
+        @env = environment
+      end
+ 
       def print(*args)
         Kernel.puts(*args)
+      end
+ 
+      def set(ident, value)
+        current_value = @env[ident]
+        if current_value && current_value == self
+          raise "can’t overwrite global subject"
+        else
+          @env[ident] = value
+        end
       end
     end
 
@@ -67,6 +85,10 @@ module FlexVerb
   end
 
   class Parser < Parslet::Parser
+    rule :subject_marker do
+      (str "subject") | (str "s")
+    end
+
     rule :verb_marker do
       (str "verb") | (str "v")
     end
@@ -77,6 +99,10 @@ module FlexVerb
 
     rule :the_actual_verb do
       (term_close_quote.absent? >> any).repeat.as(:verb)
+    end
+
+    rule :the_actual_subject do
+      (term_close_quote.absent? >> any).repeat.as(:subject)
     end
 
     rule :the_actual_direct_object do
@@ -115,16 +141,20 @@ module FlexVerb
       direct_object_marker >> term_open_quote >> the_actual_direct_object >> term_close_quote
     end
 
+    rule :verb do
+      subject_marker >> term_open_quote >> the_actual_subject >> term_close_quote
+    end
+
     rule :space do
       str " "
     end
 
     rule :term do
-      verb | direct_object
+      subject | verb | direct_object
     end
 
     rule :expression do
-      space.repeat(0) >> term >> space.repeat(0) >> term.maybe >> space.repeat(0)
+      space.repeat(0) >> term >> (space.repeat(0) >> term.maybe).repeat >> space.repeat(0)
     end
 
     root :expression
